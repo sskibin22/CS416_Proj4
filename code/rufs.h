@@ -16,6 +16,8 @@
 #define MAGIC_NUM 0x5C3A
 #define MAX_INUM 1024
 #define MAX_DNUM 16384
+#define NUM_DPTRS 16
+#define NUM_IDPTRS 8
 
 
 struct superblock {
@@ -34,8 +36,8 @@ struct inode {
 	uint32_t	size;				/* size of the file */
 	uint32_t	type;				/* type of the file */
 	uint32_t	link;				/* link count */
-	int			direct_ptr[16];		/* direct pointer to data block */
-	int			indirect_ptr[8];	/* indirect pointer to data block */
+	int			direct_ptr[NUM_DPTRS];		/* direct pointer to data block */
+	int			indirect_ptr[NUM_IDPTRS];	/* indirect pointer to data block */
 	struct stat	vstat;				/* inode stat */
 };
 

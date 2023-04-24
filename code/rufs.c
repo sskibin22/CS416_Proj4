@@ -18,6 +18,7 @@
 #include <sys/time.h>
 #include <libgen.h>
 #include <limits.h>
+#include <math.h>
 
 #include "block.h"
 #include "rufs.h"
@@ -30,11 +31,15 @@
 
 char diskfile_path[PATH_MAX];
 int inodes_per_block = 0;
+int level2_dirptrs = 0;
+int max_inode_blocks = 0;
+int max_dirents_per_block = 0;
 struct superblock* s_block_mem;
-char* block_buff;
+// char* block_buff;
 bitmap_t inode_bm;
 bitmap_t data_bm;
-struct inode* curr_inode;
+// struct inode* curr_inode;
+// struct dirent* curr_dirent;
 
 // Declare your in-memory data structures here
 
@@ -42,24 +47,25 @@ struct inode* curr_inode;
  * Get available inode number from bitmap
  */
 int get_avail_ino() {
-
+	char* block_buffer = (char*)malloc(BLOCK_SIZE);
+	memset(block_buffer, 0, BLOCK_SIZE);
 	// Step 1: Read inode bitmap from disk
-	bio_read(s_block_mem->i_bitmap_blk, block_buff);
-	memcpy(inode_bm, block_buff, (MAX_INUM/8)*sizeof(char));
+	bio_read(s_block_mem->i_bitmap_blk, block_buffer);
+	memcpy(inode_bm, block_buffer, (MAX_INUM/8)*sizeof(char));
 
 	// Step 2: Traverse inode bitmap to find an available slot
 	for(int i = 0; i < MAX_INUM; i++){
 		if(get_bitmap(inode_bm, i) == 0){
 			// Step 3: Update inode bitmap and write to disk 
 			set_bitmap(inode_bm, i);
-			memcpy(block_buff, inode_bm, (MAX_INUM/8)*sizeof(char));
-			bio_write(s_block_mem->i_bitmap_blk, block_buff);
-			memset(block_buff, 0, BLOCK_SIZE);
+			memcpy(block_buffer, inode_bm, (MAX_INUM/8)*sizeof(char));
+			bio_write(s_block_mem->i_bitmap_blk, block_buffer);
+			free(block_buffer);
 			return i;
 		}
 	}
 
-	memset(block_buff, 0, BLOCK_SIZE);
+	free(block_buffer);
 	return -1;
 }
 
@@ -67,24 +73,25 @@ int get_avail_ino() {
  * Get available data block number from bitmap
  */
 int get_avail_blkno() {
-
+	char* block_buffer = (char*)malloc(BLOCK_SIZE);
+	memset(block_buffer, 0, BLOCK_SIZE);
 	// Step 1: Read data block bitmap from disk
-	bio_read(s_block_mem->d_bitmap_blk, block_buff);
-	memcpy(data_bm, block_buff, (MAX_DNUM/8)*sizeof(char));
+	bio_read(s_block_mem->d_bitmap_blk, block_buffer);
+	memcpy(data_bm, block_buffer, (MAX_DNUM/8)*sizeof(char));
 
 	// Step 2: Traverse data block bitmap to find an available slot
 	for(int i = 0; i < MAX_DNUM; i++){
 		if(get_bitmap(data_bm, i) == 0){
 			// Step 3: Update data block bitmap and write to disk 
 			set_bitmap(data_bm, i);
-			memcpy(block_buff, data_bm, (MAX_DNUM/8)*sizeof(char));
-			bio_write(s_block_mem->d_bitmap_blk, block_buff);
-			memset(block_buff, 0, BLOCK_SIZE);
+			memcpy(block_buffer, data_bm, (MAX_DNUM/8)*sizeof(char));
+			bio_write(s_block_mem->d_bitmap_blk, block_buffer);
+			free(block_buffer);
 			return i;
 		}
 	}
 
-	memset(block_buff, 0, BLOCK_SIZE);
+	free(block_buffer);
 	return -1;
 }
 
@@ -92,7 +99,8 @@ int get_avail_blkno() {
  * inode operations
  */
 int readi(uint16_t ino, struct inode *inode) {
-
+	char* block_buffer = (char*)malloc(BLOCK_SIZE);
+	memset(block_buffer, 0, BLOCK_SIZE);
   // Step 1: Get the inode's on-disk block number
   	uint16_t blk = ((ino * sizeof(struct inode)) / BLOCK_SIZE) + s_block_mem->i_start_blk; 
 
@@ -100,15 +108,16 @@ int readi(uint16_t ino, struct inode *inode) {
   	uint16_t idx = ino % inodes_per_block;
 
   // Step 3: Read the block from disk and then copy into inode structure
-	bio_read(blk, block_buff);
-	memcpy((void*)inode, (void*)block_buff + (idx*sizeof(struct inode)), sizeof(struct inode));
-	memset(block_buff, 0, BLOCK_SIZE);
+	bio_read(blk, block_buffer);
+	memcpy((void*)inode, (void*)block_buffer + (idx*sizeof(struct inode)), sizeof(struct inode));
 
+	free(block_buffer);
 	return 0;
 }
 
 int writei(uint16_t ino, struct inode *inode) {
-
+	char* block_buffer = (char*)malloc(BLOCK_SIZE);
+	memset(block_buffer, 0, BLOCK_SIZE);
 	// Step 1: Get the block number where this inode resides on disk
 	uint16_t blk = ((ino * sizeof(struct inode)) / BLOCK_SIZE) + s_block_mem->i_start_blk; 
 	
@@ -116,10 +125,10 @@ int writei(uint16_t ino, struct inode *inode) {
 	uint16_t idx = ino % inodes_per_block;
 
 	// Step 3: Write inode to disk 
-	memcpy((void*)block_buff + (idx*sizeof(struct inode)), (void*)inode, sizeof(struct inode));
-	bio_write(blk, block_buff);
-	memset(block_buff, 0, BLOCK_SIZE);
+	memcpy((void*)block_buffer + (idx*sizeof(struct inode)), (void*)inode, sizeof(struct inode));
+	bio_write(blk, block_buffer);
 
+	free(block_buffer);
 	return 0;
 }
 
@@ -128,32 +137,261 @@ int writei(uint16_t ino, struct inode *inode) {
  * directory operations
  */
 int dir_find(uint16_t ino, const char *fname, size_t name_len, struct dirent *dirent) {
-
+	char* block_buffer = (char*)malloc(BLOCK_SIZE);
+	memset(block_buffer, 0, BLOCK_SIZE);
+	struct inode* curr_inode = (struct inode*)malloc(sizeof(struct inode));
+	memset(curr_inode, 0, sizeof(struct inode));
+	struct dirent* curr_dirent = (struct dirent*)malloc(sizeof(struct dirent));
+	memset(curr_dirent, 0, sizeof(struct dirent));
   // Step 1: Call readi() to get the inode using ino (inode number of current directory)
+  	readi(ino, curr_inode);
 
   // Step 2: Get data block of current directory from inode
-
   // Step 3: Read directory's data block and check each directory entry.
   //If the name matches, then copy directory entry to dirent structure
-
-	return 0;
+	int blks = ceil(curr_inode->size / BLOCK_SIZE);
+	for(int i = 0; i < NUM_DPTRS; i++){
+		if(curr_inode->direct_ptr[i] != 0){
+			bio_read(curr_inode->direct_ptr[i], block_buffer);
+			for(int j = 0; j < max_dirents_per_block; j++){
+				memcpy((void*)curr_dirent, (void*)block_buffer + (j*sizeof(struct dirent)), sizeof(struct dirent));
+				if(curr_dirent->valid == 1 && strcmp(fname, curr_dirent->name) == 0){
+                	memcpy(dirent, curr_dirent, sizeof(struct dirent));
+					memset(block_buffer, 0, BLOCK_SIZE);
+					free(curr_inode);
+					free(curr_dirent);
+					free(block_buffer);
+					return 0;
+            	}
+			}
+			memset(block_buffer, 0, BLOCK_SIZE);
+		}
+	}
+	if(blks > NUM_DPTRS){
+		int* indir_ptrs_block_buff = (int*)malloc(BLOCK_SIZE);
+		memset(indir_ptrs_block_buff, 0, BLOCK_SIZE);
+		for(int i = 0; i < NUM_IDPTRS; i++){
+			if(curr_inode->indirect_ptr[i] != 0){
+				bio_read(curr_inode->indirect_ptr[i], indir_ptrs_block_buff);
+				for(int j = 0; j < level2_dirptrs; j++){
+					if(indir_ptrs_block_buff[j] != 0){
+						bio_read(indir_ptrs_block_buff[j], block_buffer);
+						for(int k = 0; k < max_dirents_per_block; k++){
+							memcpy((void*)curr_dirent, (void*)block_buffer + (k*sizeof(struct dirent)), sizeof(struct dirent));
+							if(curr_dirent->valid == 1 && strcmp(fname, curr_dirent->name) == 0){
+								memcpy(dirent, curr_dirent, sizeof(struct dirent));
+								memset(block_buffer, 0, BLOCK_SIZE);
+								free(curr_inode);
+								free(curr_dirent);
+								free(block_buffer);
+								free(indir_ptrs_block_buff);
+								return 0;
+							}
+						}
+						memset(block_buffer, 0, BLOCK_SIZE);
+					}
+				}
+				memset(indir_ptrs_block_buff, 0, BLOCK_SIZE);
+			}
+		}
+		free(indir_ptrs_block_buff);
+	}
+	free(curr_inode);
+	free(curr_dirent);
+	free(block_buffer);
+	return -1;
 }
 
 int dir_add(struct inode dir_inode, uint16_t f_ino, const char *fname, size_t name_len) {
-
 	// Step 1: Read dir_inode's data block and check each directory entry of dir_inode
-	
 	// Step 2: Check if fname (directory name) is already used in other entries
-
 	// Step 3: Add directory entry in dir_inode's data block and write to disk
-
 	// Allocate a new data block for this directory if it does not exist
-
 	// Update directory inode
-
 	// Write directory entry
+	struct dirent* curr_dirent = (struct dirent*)malloc(sizeof(struct dirent));
+	memset(curr_dirent, 0, sizeof(struct dirent));
+	if(dir_find(dir_inode.ino, fname, name_len, curr_dirent) == -1){
+		char* block_buffer = (char*)malloc(BLOCK_SIZE);
+		memset(block_buffer, 0, BLOCK_SIZE);
+		// int blks = ceil(dir_inode.size / BLOCK_SIZE);
+		for(int i = 0; i < NUM_DPTRS; i++){
+			if(dir_inode.direct_ptr[i] != 0){
+				bio_read(dir_inode.direct_ptr[i], block_buffer);
+				for(int j = 0; j < max_dirents_per_block; j++){
+					memcpy((void*)curr_dirent, (void*)block_buffer + (j*sizeof(struct dirent)), sizeof(struct dirent));
+					if(curr_dirent->valid == 0){
+						curr_dirent->ino = f_ino;
+						curr_dirent->len = name_len;
+						strcpy(curr_dirent->name, fname);
+						curr_dirent->valid = 1;
+						/*UPDATE dir_inode*/
+							/*vstat, link*/
 
-	return 0;
+						/*WRITE new dirent to disk*/
+						memcpy((void*)block_buffer + (j*sizeof(struct dirent)), (void*)curr_dirent, sizeof(struct dirent));
+						bio_write(dir_inode.direct_ptr[i], block_buffer);
+					
+						free(curr_dirent);
+						free(block_buffer);
+						return 0;
+					}
+				}
+				memset(block_buffer, 0, BLOCK_SIZE);
+			}
+			else{
+				curr_dirent->ino = f_ino;
+				curr_dirent->len = name_len;
+				strcpy(curr_dirent->name, fname);
+				curr_dirent->valid = 1;
+				
+				dir_inode.direct_ptr[i] = get_avail_blkno();
+				if(dir_inode.direct_ptr[i] == -1){
+					perror("no free data blocks");
+					free(curr_dirent);
+					free(block_buffer);
+					return -1;
+				}
+				dir_inode.size += BLOCK_SIZE;
+				/*UPDATE dir_inode*/
+				/*link, vstat*/
+
+				/*Build new block buffer*/
+				memcpy((void*)block_buffer, (void*)curr_dirent, sizeof(struct dirent));
+				for(int x = 1; x < max_dirents_per_block; x++){
+					struct dirent* new_dirent = (struct dirent*)calloc(1, sizeof(struct dirent));
+					memcpy((void*)block_buffer + (x*sizeof(struct dirent)), (void*)new_dirent, sizeof(struct dirent));
+					free(new_dirent);
+				}
+				/*WRITE new dirent to disk*/
+				bio_write(dir_inode.direct_ptr[i], block_buffer);
+
+				free(curr_dirent);
+				free(block_buffer);
+				return 0;
+			}
+		}
+		/*No free space for a new dirent in direct_ptrs of dir_inode*/
+		/*Begin to search for free space for new dirent in indirect_ptrs of dir_inode*/
+		int* indir_ptrs_block_buff = (int*)malloc(BLOCK_SIZE);
+		memset(indir_ptrs_block_buff, 0, BLOCK_SIZE);
+		for(int i = 0; i < NUM_IDPTRS; i++){
+			if(dir_inode.indirect_ptr[i] != 0){
+				bio_read(dir_inode.indirect_ptr[i], indir_ptrs_block_buff);
+				for(int j = 0; j < level2_dirptrs; j++){
+					if(indir_ptrs_block_buff[j] != 0){
+						bio_read(indir_ptrs_block_buff[j], block_buffer);
+						for(int k = 0; k < max_dirents_per_block; k++){
+							memcpy((void*)curr_dirent, (void*)block_buffer + (k*sizeof(struct dirent)), sizeof(struct dirent));
+							if(curr_dirent->valid == 0){
+								curr_dirent->ino = f_ino;
+								curr_dirent->len = name_len;
+								strcpy(curr_dirent->name, fname);
+								curr_dirent->valid = 1;
+								/*UPDATE dir_inode*/
+									/*vstat, link*/
+
+								/*WRITE new dirent to disk*/
+								memcpy((void*)block_buffer + (k*sizeof(struct dirent)), (void*)curr_dirent, sizeof(struct dirent));
+								bio_write(indir_ptrs_block_buff[j], block_buffer);
+							
+								free(curr_dirent);
+								free(block_buffer);
+								free(indir_ptrs_block_buff);
+								return 0;
+							}
+						}
+						memset(block_buffer, 0, BLOCK_SIZE);
+					}
+					else{
+						curr_dirent->ino = f_ino;
+						curr_dirent->len = name_len;
+						strcpy(curr_dirent->name, fname);
+						curr_dirent->valid = 1;
+						/*UPDATE dir_inode*/
+						/*vstat, link*/
+
+						indir_ptrs_block_buff[j] = get_avail_blkno();
+						if(indir_ptrs_block_buff[j] == -1){
+							perror("no free data blocks");
+							free(curr_dirent);
+							free(block_buffer);
+							free(indir_ptrs_block_buff);
+							return -1;
+						}
+						dir_inode.size += BLOCK_SIZE;
+						/*Build new block buffer*/
+						memcpy((void*)block_buffer, (void*)curr_dirent, sizeof(struct dirent));
+						for(int x = 1; x < max_dirents_per_block; x++){
+							struct dirent* new_dirent = (struct dirent*)calloc(1, sizeof(struct dirent));
+							memcpy((void*)block_buffer + (x*sizeof(struct dirent)), (void*)new_dirent, sizeof(struct dirent));
+							free(new_dirent);
+						}
+						/*WRITE new dirent to disk*/
+						bio_write(indir_ptrs_block_buff[j], block_buffer);
+
+						free(curr_dirent);
+						free(block_buffer);
+						free(indir_ptrs_block_buff);
+						return 0;
+					}
+				}
+				memset(indir_ptrs_block_buff, 0, BLOCK_SIZE);
+			}
+			else{
+				curr_dirent->ino = f_ino;
+				curr_dirent->len = name_len;
+				strcpy(curr_dirent->name, fname);
+				curr_dirent->valid = 1;
+				/*UPDATE dir_inode*/
+					/*vstat, link*/
+
+				/*Allocate a new data block for new indirect ptr*/
+				dir_inode.indirect_ptr[i] = get_avail_blkno();
+				if(dir_inode.indirect_ptr[i] == -1){
+					perror("no free data blocks");
+					free(curr_dirent);
+					free(block_buffer);
+					free(indir_ptrs_block_buff);
+					return -1;
+				}
+				dir_inode.size += BLOCK_SIZE;
+				/*Allocate new data block for new indirect ptr entry*/
+				indir_ptrs_block_buff[0] = get_avail_blkno();
+				if(dir_inode.indirect_ptr[i] == -1){
+					perror("no free data blocks");
+					free(curr_dirent);
+					free(block_buffer);
+					free(indir_ptrs_block_buff);
+					return -1;
+				}
+				dir_inode.size += BLOCK_SIZE;
+				/*Write new indirect ptr block to disk*/
+				bio_write(dir_inode.indirect_ptr[i], indir_ptrs_block_buff);
+
+				/*Build new block buffer*/
+				memset(block_buffer, 0, BLOCK_SIZE);
+				memcpy((void*)block_buffer, (void*)curr_dirent, sizeof(struct dirent));
+				for(int x = 1; x < max_dirents_per_block; x++){
+					struct dirent* new_dirent = (struct dirent*)calloc(1, sizeof(struct dirent));
+					memcpy((void*)block_buffer + (x*sizeof(struct dirent)), (void*)new_dirent, sizeof(struct dirent));
+					free(new_dirent);
+				}
+				/*WRITE new dirent to disk*/
+				bio_write(indir_ptrs_block_buff[0], block_buffer);
+
+				free(curr_dirent);
+				free(block_buffer);
+				free(indir_ptrs_block_buff);
+				return 0;
+			}
+		}
+		free(indir_ptrs_block_buff);
+		free(block_buffer);
+	}
+	free(curr_dirent);
+	perror("Disk Memory Full");
+	return -1;
 }
 /*OPTIONAL: SKIP*/
 int dir_remove(struct inode dir_inode, const char *fname, size_t name_len) {
@@ -182,12 +420,12 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
  * Make file system
  */
 int rufs_mkfs() {
-
+	char* block_buffer = (char*)malloc(BLOCK_SIZE);
+	memset(block_buffer, 0, BLOCK_SIZE);
 	// Call dev_init() to initialize (Create) Diskfile
 	dev_init(diskfile_path);
 	dev_open(diskfile_path);
-	block_buff = (char*)malloc(BLOCK_SIZE);
-	memset(block_buff, 0, BLOCK_SIZE);
+
 	// write superblock information
 	s_block_mem = (struct superblock*)malloc(sizeof(struct superblock));
 	s_block_mem->magic_num = MAGIC_NUM;
@@ -198,9 +436,9 @@ int rufs_mkfs() {
 	s_block_mem->i_start_blk = IREG_IDX;
 	s_block_mem->d_start_blk = ((sizeof(struct inode)*MAX_INUM)/BLOCK_SIZE) + (IREG_IDX + 1);
 
-	memcpy(block_buff, s_block_mem, sizeof(struct superblock));
-	bio_write(SUPER_IDX, block_buff);
-	memset(block_buff, 0, BLOCK_SIZE);
+	memcpy(block_buffer, s_block_mem, sizeof(struct superblock));
+	bio_write(SUPER_IDX, block_buffer);
+	memset(block_buffer, 0, BLOCK_SIZE);
 	// initialize inode bitmap
 	inode_bm = (bitmap_t)malloc((MAX_INUM/8)*sizeof(char));
 	memset(inode_bm, 0, (MAX_INUM/8)*sizeof(char));
@@ -213,17 +451,14 @@ int rufs_mkfs() {
 
 	// update inode for root directory
 
-	memcpy(block_buff, inode_bm, (MAX_INUM/8)*sizeof(char));
-	bio_write(s_block_mem->i_bitmap_blk, block_buff);
-	memset(block_buff, 0, BLOCK_SIZE);
+	memcpy(block_buffer, inode_bm, (MAX_INUM/8)*sizeof(char));
+	bio_write(s_block_mem->i_bitmap_blk, block_buffer);
+	memset(block_buffer, 0, BLOCK_SIZE);
 	
-	memcpy(block_buff, data_bm, (MAX_DNUM/8)*sizeof(char));
-	bio_write(s_block_mem->d_bitmap_blk, block_buff);
-	memset(block_buff, 0, BLOCK_SIZE);
-
-	curr_inode = (struct inode*)malloc(sizeof(struct inode));
-	memset(curr_inode, 0, sizeof(struct inode));
-	inodes_per_block = BLOCK_SIZE/sizeof(struct inode);
+	memcpy(block_buffer, data_bm, (MAX_DNUM/8)*sizeof(char));
+	bio_write(s_block_mem->d_bitmap_blk, block_buffer);
+	memset(block_buffer, 0, BLOCK_SIZE);
+	free(block_buffer);
 	return 0;
 }
 
@@ -235,30 +470,40 @@ static void *rufs_init(struct fuse_conn_info *conn) {
 
 	// Step 1b: If disk file is found, just initialize in-memory data structures
   	// and read superblock from disk
+	// block_buff = (char*)malloc(BLOCK_SIZE);
+	// memset(block_buff, 0, BLOCK_SIZE);
 	if (access(diskfile_path, F_OK) == 0) {
+		char* block_buffer = (char*)malloc(BLOCK_SIZE);
+		memset(block_buffer, 0, BLOCK_SIZE);
 		dev_open(diskfile_path);
-		block_buff = (char*)malloc(BLOCK_SIZE);
-		memset(block_buff, 0, BLOCK_SIZE);
 
 		s_block_mem = (struct superblock*)malloc(sizeof(struct superblock));
-		bio_read(SUPER_IDX, block_buff);
-		memcpy(s_block_mem, block_buff, sizeof(struct superblock));
+		bio_read(SUPER_IDX, block_buffer);
+		memcpy(s_block_mem, block_buffer, sizeof(struct superblock));
 
 		inode_bm = (bitmap_t)malloc((MAX_INUM/8)*sizeof(char));
-		bio_read(IBM_IDX, block_buff);
-		memcpy(inode_bm, block_buff, (MAX_INUM/8)*sizeof(char));
+		bio_read(IBM_IDX, block_buffer);
+		memcpy(inode_bm, block_buffer, (MAX_INUM/8)*sizeof(char));
 
 
 		data_bm = (bitmap_t)malloc((MAX_DNUM/8)*sizeof(char));
-		bio_read(SUPER_IDX, block_buff);
-		memcpy(data_bm, block_buff, (MAX_DNUM/8)*sizeof(char));
-
-		inodes_per_block = BLOCK_SIZE/sizeof(struct inode);
+		bio_read(SUPER_IDX, block_buffer);
+		memcpy(data_bm, block_buffer, (MAX_DNUM/8)*sizeof(char));
+		free(block_buffer);
 	}
 	// Step 1a: If disk file is not found, call mkfs
 	else {
 		rufs_mkfs();
 	}
+
+	// curr_inode = (struct inode*)malloc(sizeof(struct inode));
+	// memset(curr_inode, 0, sizeof(struct inode));
+	// curr_dirent = (struct dirent*)malloc(sizeof(struct dirent));
+	// memset(curr_dirent, 0, sizeof(struct dirent));
+	inodes_per_block = BLOCK_SIZE / sizeof(struct inode);
+	level2_dirptrs = BLOCK_SIZE / sizeof(int);
+	max_inode_blocks = (NUM_DPTRS + NUM_IDPTRS) + (NUM_IDPTRS*level2_dirptrs);
+	max_dirents_per_block = BLOCK_SIZE / sizeof(struct dirent);
   
 	return NULL;
 }
@@ -269,8 +514,9 @@ static void rufs_destroy(void *userdata) {
 	free(inode_bm);
 	free(data_bm);
 	free(s_block_mem);
-	free(curr_inode);
-	free(block_buff);
+	// free(curr_inode);
+	// free(curr_dirent);
+	// free(block_buff);
 	// Step 2: Close diskfile
 	dev_close();
 }
