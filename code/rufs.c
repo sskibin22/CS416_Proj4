@@ -28,20 +28,15 @@
 #define DBM_IDX 2
 #define IREG_IDX 3
 
-
+// Declare your in-memory data structures here
 char diskfile_path[PATH_MAX];
 int inodes_per_block = 0;
 int level2_dirptrs = 0;
 int max_inode_blocks = 0;
 int max_dirents_per_block = 0;
 struct superblock* s_block_mem;
-// char* block_buff;
 bitmap_t inode_bm;
 bitmap_t data_bm;
-// struct inode* curr_inode;
-// struct dirent* curr_dirent;
-
-// Declare your in-memory data structures here
 
 /* 
  * Get available inode number from bitmap
@@ -412,7 +407,7 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 	
 	// Step 1: Resolve the path name, walk through path, and finally, find its inode.
 	// Note: You could either implement it in a iterative way or recursive way
-
+	
 	return 0;
 }
 
@@ -470,8 +465,6 @@ static void *rufs_init(struct fuse_conn_info *conn) {
 
 	// Step 1b: If disk file is found, just initialize in-memory data structures
   	// and read superblock from disk
-	// block_buff = (char*)malloc(BLOCK_SIZE);
-	// memset(block_buff, 0, BLOCK_SIZE);
 	if (access(diskfile_path, F_OK) == 0) {
 		char* block_buffer = (char*)malloc(BLOCK_SIZE);
 		memset(block_buffer, 0, BLOCK_SIZE);
@@ -496,10 +489,6 @@ static void *rufs_init(struct fuse_conn_info *conn) {
 		rufs_mkfs();
 	}
 
-	// curr_inode = (struct inode*)malloc(sizeof(struct inode));
-	// memset(curr_inode, 0, sizeof(struct inode));
-	// curr_dirent = (struct dirent*)malloc(sizeof(struct dirent));
-	// memset(curr_dirent, 0, sizeof(struct dirent));
 	inodes_per_block = BLOCK_SIZE / sizeof(struct inode);
 	level2_dirptrs = BLOCK_SIZE / sizeof(int);
 	max_inode_blocks = (NUM_DPTRS + NUM_IDPTRS) + (NUM_IDPTRS*level2_dirptrs);

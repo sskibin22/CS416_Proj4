@@ -14,8 +14,8 @@
 #define _TFS_H
 
 #define MAGIC_NUM 0x5C3A
-#define MAX_INUM 1024
-#define MAX_DNUM 16384
+#define MAX_INUM 1024 //Max inode data structures (not blocks)
+#define MAX_DNUM 16384 //Max data blocks
 #define NUM_DPTRS 16
 #define NUM_IDPTRS 8
 
