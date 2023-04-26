@@ -5,10 +5,10 @@ LDFLAGS=-lfuse
 OBJ=rufs.o block.o
 
 %.o: %.c
-	$(CC) -c $(CFLAGS) $< -o $@ -lm
+	$(CC) -c $(CFLAGS) $< -o $@ 
 
 rufs: $(OBJ)
-	$(CC) $(OBJ) $(LDFLAGS) -o rufs -lm
+	$(CC) $(OBJ) $(LDFLAGS) -o rufs 
 
 .PHONY: clean
 clean:

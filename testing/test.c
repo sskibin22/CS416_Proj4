@@ -27,6 +27,9 @@ struct superblock {
 	uint32_t	d_bitmap_blk;		/* start block of data block bitmap */
 	uint32_t	i_start_blk;		/* start block of inode region */
 	uint32_t	d_start_blk;		/* start block of data block region */
+    uint32_t    inodes_per_blk;
+	uint32_t    dirents_per_blk;
+	uint32_t    max_dblks;
 };
 
 struct inode {
@@ -138,6 +141,7 @@ char str2[6] = "world";
 char str3[23];
 char str4[23] = "The whole world is big";
 char str5[23];
+char str6[100];
 
 void print_str(const char* str, const char end) {
     int i = 0;
@@ -146,6 +150,31 @@ void print_str(const char* str, const char end) {
         i++;
     }
     printf("\n");
+}
+char str7[100] = "/tmp/foo/bar/meh/some.txt";
+
+int seperate_path(char* path, char* token) {
+    if((token = strtok_r(path, "/", &path))){
+        printf("token: %s\n", token);
+        printf("path: %s\n", path);
+        printf("\n");
+        if(strcmp(path, "\0") == 0){
+            printf("last\n");
+            return 0;
+        }
+        seperate_path(path, token);
+        return 0;
+    }
+    else{
+        return 0;
+    }
+}
+int sep_path_helper(const char* path){
+    char* tok = NULL;
+    char str[PATH_MAX];
+    strcpy(str, path);
+    seperate_path(str, tok);
+    return 0;
 }
 
 /*******************************************************************************************************/
@@ -164,15 +193,15 @@ int main(int argc, char** argv){
             printf("BLOCK SIZE: %d bytes\n", BLOCK_SIZE);
             printf("TOTAL BLOCKS IN DISK: %d\n", DISK_SIZE / BLOCK_SIZE);
             printf("INODES PER BLOCK: %ld\n", BLOCK_SIZE / sizeof(struct inode));
-            printf("NUM INODE BLOCKS: %ld\n", MAX_INUM / (BLOCK_SIZE / sizeof(struct inode)));
+            printf("NUM INODE BLOCKS: %ld\n", (sizeof(struct inode)*MAX_INUM)/BLOCK_SIZE);
             printf("DIRENTS PER BLOCK: %ld\n", BLOCK_SIZE / sizeof(struct dirent));
-            printf("NUM DIRENT BLOCKS: %ld\n", MAX_DNUM / (BLOCK_SIZE / sizeof(struct dirent)));
+            printf("MAX DATA BLOCKS(on disk): %ld\n", (DISK_SIZE/BLOCK_SIZE) - (((sizeof(struct inode)*MAX_INUM)/BLOCK_SIZE)+3));
             printf("MAX NUM INODES: %d\n", MAX_INUM);
-            printf("MAX NUM DATA ENTRIES: %d\n", MAX_DNUM);
+            printf("MAX NUM DATA BLOCKS: %d\n", MAX_DNUM);
             printf("superblock: %ld bytes\n", sizeof(struct superblock));
             printf("inode: %ld bytes\n", sizeof(struct inode));
             printf("dirent: %ld bytes\n", sizeof(struct dirent));
-
+            printf("%d\n", S_IFDIR | 0755 );
             struct dirent* nd = (struct dirent*)calloc(1, sizeof(struct dirent));
             nd->name[0] = 'n';
             printf("ino: %u\n", nd->ino);
@@ -324,6 +353,13 @@ int main(int argc, char** argv){
 
             strcpy(str5, inchar);
             printf("%s\n", str5);
+
+            strcpy(str6, ".");
+            printf("%s\n", str6);
+            printf("len str6: %ld\n", strlen(str6));
+            printf("\n");
+            sep_path_helper(str7);
+            printf("%s\n", str7);
         }
         else{
             printf("Bad Usage: Must pass in one of the following integers...\n");

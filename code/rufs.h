@@ -18,6 +18,7 @@
 #define MAX_DNUM 16384 //Max data blocks
 #define NUM_DPTRS 16
 #define NUM_IDPTRS 8
+#define DISK_SIZE 32*1024*1024
 
 
 struct superblock {
@@ -28,6 +29,9 @@ struct superblock {
 	uint32_t	d_bitmap_blk;		/* start block of data block bitmap */
 	uint32_t	i_start_blk;		/* start block of inode region */
 	uint32_t	d_start_blk;		/* start block of data block region */
+	uint32_t    inodes_per_blk;
+	uint32_t    dirents_per_blk;
+	uint32_t    max_dblks;
 };
 
 struct inode {
