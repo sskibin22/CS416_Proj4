@@ -218,6 +218,11 @@ int main(int argc, char** argv){
             }
             printf("\n");
             free(darr);
+
+            uint16_t x = 0;
+            uint32_t y = 16;
+            uint16_t num = x % y;
+            printf("%d\n", num);
         }
     /*******************************************************************************************************/
     /*Testing open/read/write/close disk mem with data structures and bitmaps*/

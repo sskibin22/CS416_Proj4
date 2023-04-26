@@ -98,7 +98,6 @@ int readi(uint16_t ino, struct inode *inode) {
 	memset(block_buffer, 0, BLOCK_SIZE);
   // Step 1: Get the inode's on-disk block number
   	uint16_t blk = ((ino * sizeof(struct inode)) / BLOCK_SIZE) + s_block_mem->i_start_blk; 
-
   // Step 2: Get offset of the inode in the inode on-disk block
   	uint16_t idx = ino % s_block_mem->inodes_per_blk;
 
@@ -259,6 +258,7 @@ int dir_remove(struct inode dir_inode, const char *fname, size_t name_len) {
 }
 /*Helper recursive function for get_node_by_path()*/
 int get_node_by_path_rec(char* path, char* token, uint16_t ino, struct inode *inode) {
+	printf("in get_node_by_path_rec()\n");
     if((token = strtok_r(path, "/", &path))){
 		struct dirent* curr_dirent = (struct dirent*)calloc(1, sizeof(struct dirent));
         size_t length = strlen(token);
@@ -294,6 +294,7 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
 	
 	// Step 1: Resolve the path name, walk through path, and finally, find its inode.
 	// Note: You could either implement it in a iterative way or recursive way
+	printf("in get_node_by_path()\n");
 	if(strcmp(path, "/") == 0){
 		readi(ino, inode);
 		return 0;
@@ -317,16 +318,15 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
  */
 int rufs_mkfs() {
 	// Call dev_init() to initialize (Create) Diskfile
+	printf("initializing disk\n");
 	dev_init(diskfile_path);
 	dev_open(diskfile_path);
-
-	bitmap_t inode_bm = (bitmap_t)malloc((s_block_mem->max_inum/8)*sizeof(char));
-	memset(inode_bm, 0, (s_block_mem->max_inum/8)*sizeof(char));
-	bitmap_t data_bm = (bitmap_t)malloc((s_block_mem->max_dnum/8)*sizeof(char));
-	memset(data_bm, 0, (s_block_mem->max_dnum/8)*sizeof(char));
+	bitmap_t inode_bm = (bitmap_t)malloc((MAX_INUM/8)*sizeof(char));
+	memset(inode_bm, 0, (MAX_INUM/8)*sizeof(char));
+	bitmap_t data_bm = (bitmap_t)malloc((MAX_DNUM/8)*sizeof(char));
+	memset(data_bm, 0, (MAX_DNUM/8)*sizeof(char));
 	char* block_buffer = (char*)malloc(BLOCK_SIZE);
 	memset(block_buffer, 0, BLOCK_SIZE);
-
 	// write superblock information
 	s_block_mem = (struct superblock*)malloc(sizeof(struct superblock));
 	s_block_mem->magic_num = MAGIC_NUM;
@@ -349,7 +349,7 @@ int rufs_mkfs() {
 	// initialize data block bitmap
 	data_bm = (bitmap_t)malloc((MAX_DNUM/8)*sizeof(char));
 	memset(data_bm, 0, (MAX_DNUM/8)*sizeof(char));
-	
+
 	// update bitmap information for root directory
 	set_bitmap(inode_bm, ROOT_INO);
 	set_bitmap(data_bm, 0);
@@ -394,6 +394,7 @@ int rufs_mkfs() {
 	free(block_buffer);
 	free(inode_bm);
 	free(data_bm);
+
 	return 0;
 }
 
@@ -406,6 +407,7 @@ static void *rufs_init(struct fuse_conn_info *conn) {
 	// Step 1b: If disk file is found, just initialize in-memory data structures
   	// and read superblock from disk
 	if (access(diskfile_path, F_OK) == 0) {
+		printf("disk already initialized\n");
 		char* block_buffer = (char*)malloc(BLOCK_SIZE);
 		memset(block_buffer, 0, BLOCK_SIZE);
 		dev_open(diskfile_path);
@@ -433,13 +435,15 @@ static void rufs_destroy(void *userdata) {
 }
 
 static int rufs_getattr(const char *path, struct stat *stbuf) {
+	printf( "[getattr] Called\n" );
+	printf( "\tAttributes of %s requested\n", path );
 
 	// Step 1: call get_node_by_path() to get inode from path
 	struct inode* curr_inode = (struct inode*)calloc(1, sizeof(struct inode));
 	if(get_node_by_path(path, ROOT_INO, curr_inode) == -1){
 		free(curr_inode);
 		// perror("path does not exist");
-		return -1;
+		return ENOENT;
 	}
 	// Step 2: fill attribute of file into stbuf from inode
 	stbuf->st_uid = curr_inode->vstat.st_uid;
