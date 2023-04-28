@@ -18,7 +18,7 @@
 #define MAX_DNUM 16384 //Max data blocks
 #define NUM_DPTRS 16
 #define NUM_IDPTRS 8
-#define DISK_SIZE 32*1024*1024
+#define DISK_SIZE 32*1024*1024 //Make not of this macro being in two different spots in the report
 
 
 struct superblock {
@@ -32,6 +32,8 @@ struct superblock {
 	uint32_t    inodes_per_blk;
 	uint32_t    dirents_per_blk;
 	uint32_t    max_dblks;
+	uint32_t    max_file_size;
+	uint32_t    total_blocks_alloc; 
 };
 
 struct inode {

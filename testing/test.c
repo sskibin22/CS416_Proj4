@@ -48,9 +48,22 @@ struct dirent {
 	uint16_t valid;					/* validity of the directory entry */
 	char name[208];					/* name of the directory entry */
 	uint16_t len;					/* length of name */
+    int ptrs[16];
 };
 
 typedef unsigned char* bitmap_t;
+
+int fill_dirent(struct dirent dir, const char* fname, size_t flen, uint16_t inum){
+    dir.ino = inum;
+    dir.valid = 1;
+    strcpy(dir.name, fname);
+    dir.len = flen;
+    dir.ptrs[0] = 29;
+    return 0;
+}
+void print_dirent(struct dirent dir){
+    printf("valid: %i | name: %s | len: %d | ino: %i | ptr: %i\n", dir.valid, dir.name, dir.len, dir.ino, dir.ptrs[0]);
+}
 /*******************************************************************************************************/
 /*Global Variables*/
 /*******************************************************************************************************/
@@ -177,6 +190,30 @@ int sep_path_helper(const char* path){
     return 0;
 }
 
+int get_node_by_path(const char *path) {
+    if(strcmp(path, "/") == 0){
+        printf("root\n");
+        return 0;
+    }
+    const char* path_ptr = path;
+    while(strcmp(path_ptr, "\0") != 0){
+        if(path_ptr[0] == '/'){
+            path_ptr++;
+        }
+        int name_len = strcspn(path_ptr, "/");
+        char* name = (char*)calloc(name_len, sizeof(char));
+        strncpy(name, path_ptr, name_len);
+        if(strcmp(name, "\0") == 0){
+            free(name);
+            return 0;
+        }
+        printf("%s\n", name);
+        path_ptr += name_len;
+        free(name);
+    }
+    return 0;
+}
+
 /*******************************************************************************************************/
 /*===============================================MAIN===================================================*/
 /*******************************************************************************************************/
@@ -223,6 +260,15 @@ int main(int argc, char** argv){
             uint32_t y = 16;
             uint16_t num = x % y;
             printf("%d\n", num);
+
+            char str_name[100] = "file123";
+            size_t len = strlen(str_name);
+            // struct dirent* direct_en = (struct dirent*)calloc(1, sizeof(struct dirent));
+            // struct dirent direct_en;
+            struct dirent direct_en;
+            fill_dirent(direct_en, str_name, len, 10);
+            print_dirent(direct_en);
+            // free(direct_en);
         }
     /*******************************************************************************************************/
     /*Testing open/read/write/close disk mem with data structures and bitmaps*/
@@ -365,6 +411,65 @@ int main(int argc, char** argv){
             printf("\n");
             sep_path_helper(str7);
             printf("%s\n", str7);
+            printf("\n");
+
+            const char str8[PATH_MAX] = "/foo/bar";
+            
+            // char path_cpy[PATH_MAX];
+            char* path_cpy = (char*)calloc(strlen(str8), sizeof(char));
+            strcpy(path_cpy, str8);
+            printf("path_cpy: %s\n", path_cpy);
+            char* base = basename(path_cpy);
+            char* dir = dirname(path_cpy);
+            
+            // char* new_base;
+            printf("dirname: %s\n", dir);
+            printf("basename: %s\n", base);
+            if(strcmp(dir, "/") == 0){
+                printf("in root\n");
+                base = str8;
+                base++;
+                printf("base: %s\n", base);
+                size_t len = strlen(base);
+                printf("len: %ld\n", len);
+            }
+            else{
+                printf("not same\n");
+            }
+            char* base1 = basename(str8);
+            char* dir1 = dirname(str8);
+            
+            printf("dirname: %s\n", dir1);
+            printf("basename: %s\n", base1);
+            printf("og path: %s\n", str8);
+            free(path_cpy);
+            printf("\n");
+            const char path[PATH_MAX] = "/tmp/foo/bar/baz/a.txt";
+            const char path2[PATH_MAX] = "/";
+            const char path3[PATH_MAX] = "/tmp";
+            const char path4[PATH_MAX] = "/tmp/";
+            const char path5[PATH_MAX] = "tmp";
+
+            printf("testing: %s\n", path);
+            get_node_by_path(path);
+            printf("path: %s\n", path);
+            printf("-----------------\n");
+            printf("testing: %s\n", path2);
+            get_node_by_path(path2);
+            printf("path: %s\n", path2);
+            printf("-----------------\n");
+            printf("testing: %s\n", path3);
+            get_node_by_path(path3);
+            printf("path: %s\n", path3);
+            printf("-----------------\n");
+            printf("testing: %s\n", path4);
+            get_node_by_path(path4);
+            printf("path: %s\n", path4);
+            printf("-----------------\n");
+            printf("testing: %s\n", path5);
+            get_node_by_path(path5);
+            printf("path: %s\n", path5);
+            printf("-----------------\n");
         }
         else{
             printf("Bad Usage: Must pass in one of the following integers...\n");

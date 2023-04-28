@@ -7,9 +7,10 @@
 #include <string.h>
 #include <sys/types.h>
 #include <dirent.h>
+#include <time.h>
 
 /* You need to change this macro to your TFS mount point*/
-#define TESTDIR "/tmp/mountdir"
+#define TESTDIR "/tmp/ss3793/mountdir"
 
 #define N_FILES 100
 #define BLOCKSIZE 4096
@@ -21,6 +22,9 @@
 char buf[BLOCKSIZE];
 
 int main(int argc, char **argv) {
+
+	struct timespec start, end;
+    clock_gettime(CLOCK_REALTIME, &start);
 
 	int i, fd = 0, ret = 0;
 	struct stat st;
@@ -46,6 +50,9 @@ int main(int argc, char **argv) {
 	
 	fstat(fd, &st);
 	if (st.st_size != ITERS*BLOCKSIZE) {
+		printf("st_size: %li\n", st.st_size);
+		printf("actual: %i\n", ITERS*BLOCKSIZE);
+		printf("size not equal\n");
 		printf("TEST 2: File write failure \n");
 		exit(1);
 	}
@@ -109,8 +116,11 @@ int main(int argc, char **argv) {
 			exit(1);
 		}
 	}
-	
 	printf("TEST 6: Sub-directory create success \n");
+
+	clock_gettime(CLOCK_REALTIME, &end);
+	printf("Total run time: %lu milliseconds\n", 
+	       (end.tv_sec - start.tv_sec) * 1000 + (end.tv_nsec - start.tv_nsec) / 1000000);
 
 	printf("Benchmark completed \n");
 	return 0;
