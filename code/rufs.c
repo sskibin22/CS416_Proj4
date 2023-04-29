@@ -32,25 +32,24 @@
 char diskfile_path[PATH_MAX];
 struct superblock* s_block_mem;
 
-
 /* 
  * Get available inode number from bitmap
  */
 int get_avail_ino() {
-	bitmap_t inode_bm  = (bitmap_t)malloc((s_block_mem->max_inum/8)*sizeof(char));
-	memset(inode_bm, 0, sizeof((s_block_mem->max_inum/8)*sizeof(char)));
+	bitmap_t i_bm  = (bitmap_t)malloc((s_block_mem->max_inum/8)*sizeof(char));
+	memset(i_bm, 0, (s_block_mem->max_inum/8)*sizeof(char));
 	char* block_buffer = (char*)malloc(BLOCK_SIZE);
 	memset(block_buffer, 0, BLOCK_SIZE);
 	// Step 1: Read inode bitmap from disk
 	bio_read(s_block_mem->i_bitmap_blk, block_buffer);
-	memcpy(inode_bm, block_buffer, (s_block_mem->max_inum/8)*sizeof(char));
+	memcpy(i_bm, block_buffer, (s_block_mem->max_inum/8)*sizeof(char));
 
 	// Step 2: Traverse inode bitmap to find an available slot
 	for(int i = 0; i < s_block_mem->max_inum; i++){
-		if(get_bitmap(inode_bm, i) == 0){
+		if(get_bitmap(i_bm, i) == 0){
 			// Step 3: Update inode bitmap and write to disk 
-			set_bitmap(inode_bm, i);
-			memcpy(block_buffer, inode_bm, (s_block_mem->max_inum/8)*sizeof(char));
+			set_bitmap(i_bm, i);
+			memcpy(block_buffer, i_bm, (s_block_mem->max_inum/8)*sizeof(char));
 			bio_write(s_block_mem->i_bitmap_blk, block_buffer);
 			free(block_buffer);
 			return i;
@@ -58,7 +57,7 @@ int get_avail_ino() {
 	}
 
 	free(block_buffer);
-	free(inode_bm);
+	free(i_bm);
 	return -1;
 }
 
@@ -66,29 +65,29 @@ int get_avail_ino() {
  * Get available data block number from bitmap
  */
 int get_avail_blkno() {
-	bitmap_t data_bm  = (bitmap_t)malloc((s_block_mem->max_dnum/8)*sizeof(char));
-	memset(data_bm, 0, sizeof((s_block_mem->max_dnum/8)*sizeof(char)));
+	bitmap_t d_bm = (bitmap_t)malloc((s_block_mem->max_dnum/8)*sizeof(char));
+	memset(d_bm, 0, (s_block_mem->max_dnum/8)*sizeof(char));
 	char* block_buffer = (char*)malloc(BLOCK_SIZE);
 	memset(block_buffer, 0, BLOCK_SIZE);
 	// Step 1: Read data block bitmap from disk
 	bio_read(s_block_mem->d_bitmap_blk, block_buffer);
-	memcpy(data_bm, block_buffer, (s_block_mem->max_dnum/8)*sizeof(char));
+	memcpy(d_bm, block_buffer, (s_block_mem->max_dnum/8)*sizeof(char));
 
 	// Step 2: Traverse data block bitmap to find an available slot
-	for(int i = 0; i < s_block_mem->max_dblks; i++){ //s_block_mem->max_dnum
-		if(get_bitmap(data_bm, i) == 0){
+	for(int i = 0; i < s_block_mem->max_dnum; i++){ 
+		if(get_bitmap(d_bm, i) == 0){
 			// Step 3: Update data block bitmap and write to disk 
-			set_bitmap(data_bm, i);
-			memcpy(block_buffer, data_bm, (s_block_mem->max_dnum/8)*sizeof(char));
+			set_bitmap(d_bm, i);
+			memcpy(block_buffer, d_bm, (s_block_mem->max_dnum/8)*sizeof(char));
 			bio_write(s_block_mem->d_bitmap_blk, block_buffer);
 			free(block_buffer);
-			s_block_mem->d_start_blk++;
+			s_block_mem->total_blocks_alloc++;
 			return s_block_mem->d_start_blk + i;
 		}
 	}
 
 	free(block_buffer);
-	free(data_bm);
+	free(d_bm);
 	return -1;
 }
 
@@ -300,7 +299,6 @@ int get_node_by_path(const char *path, uint16_t ino, struct inode *inode) {
  */
 int rufs_mkfs() {
 	// Call dev_init() to initialize (Create) Diskfile
-	printf("initializing disk\n");
 	dev_init(diskfile_path);
 	dev_open(diskfile_path);
 
@@ -315,7 +313,6 @@ int rufs_mkfs() {
 	s_block_mem->d_start_blk = ((sizeof(struct inode)*MAX_INUM)/BLOCK_SIZE) + (IREG_IDX + 1);
 	s_block_mem->inodes_per_blk = BLOCK_SIZE / sizeof(struct inode);
 	s_block_mem->dirents_per_blk = BLOCK_SIZE / sizeof(struct dirent);
-	s_block_mem->max_dblks = (DISK_SIZE/BLOCK_SIZE) - (((sizeof(struct inode)*MAX_INUM)/BLOCK_SIZE)+3);
 	s_block_mem->max_file_size = NUM_DPTRS * BLOCK_SIZE;
 	s_block_mem->total_blocks_alloc = s_block_mem->d_start_blk;
 
@@ -326,19 +323,29 @@ int rufs_mkfs() {
 	memcpy(block_buffer, s_block_mem, sizeof(struct superblock));
 	bio_write(SUPER_IDX, block_buffer);
 	memset(block_buffer, 0, BLOCK_SIZE);
+
 	// initialize inode bitmap
 	bitmap_t inode_bm = (bitmap_t)malloc((MAX_INUM/8)*sizeof(char));
-	if(inode_bm == NULL){
-		printf("inode_bm fail\n");
-	}
 	memset(inode_bm, 0, (MAX_INUM/8)*sizeof(char));
 	// initialize data block bitmap
 	bitmap_t data_bm = (bitmap_t)malloc((MAX_DNUM/8)*sizeof(char));
 	memset(data_bm, 0, (MAX_DNUM/8)*sizeof(char));
-
+	
 	// update bitmap information for root directory
 	set_bitmap(inode_bm, ROOT_INO);
 	set_bitmap(data_bm, 0);
+	
+	memcpy(block_buffer, inode_bm, (MAX_INUM/8)*sizeof(char));
+	bio_write(s_block_mem->i_bitmap_blk, block_buffer);
+	memset(block_buffer, 0, BLOCK_SIZE);
+	
+	memcpy(block_buffer, data_bm, (MAX_DNUM/8)*sizeof(char));
+	bio_write(s_block_mem->d_bitmap_blk, block_buffer);
+	memset(block_buffer, 0, BLOCK_SIZE);
+	
+	free(inode_bm);
+	free(data_bm);
+	free(block_buffer);
 
 	// update inode for root directory
 	struct inode* root_inode = (struct inode*)calloc(1, sizeof(struct inode));
@@ -357,18 +364,8 @@ int rufs_mkfs() {
 
 	writei(ROOT_INO, root_inode);
 
-	memcpy(block_buffer, inode_bm, (MAX_INUM/8)*sizeof(char));
-	bio_write(s_block_mem->i_bitmap_blk, block_buffer);
-	memset(block_buffer, 0, BLOCK_SIZE);
-	
-	memcpy(block_buffer, data_bm, (MAX_DNUM/8)*sizeof(char));
-	bio_write(s_block_mem->d_bitmap_blk, block_buffer);
-	memset(block_buffer, 0, BLOCK_SIZE);
-
 	free(root_inode);
-	free(inode_bm);
-	free(data_bm);
-	free(block_buffer);
+	
 	return 0;
 }
 
@@ -381,7 +378,6 @@ static void *rufs_init(struct fuse_conn_info *conn) {
 	// Step 1b: If disk file is found, just initialize in-memory data structures
   	// and read superblock from disk
 	if (access(diskfile_path, F_OK) == 0) {
-		printf("disk already initialized\n");
 		char* block_buffer = (char*)malloc(BLOCK_SIZE);
 		memset(block_buffer, 0, BLOCK_SIZE);
 		dev_open(diskfile_path);
@@ -410,7 +406,7 @@ static void rufs_destroy(void *userdata) {
 
 static int rufs_getattr(const char *path, struct stat *stbuf) {
 	memset(stbuf, 0, sizeof(struct stat));
-	printf("allocated blocks: %i\n", s_block_mem->d_start_blk);
+	// printf("Total Blocks Allocated: %d\n", s_block_mem->total_blocks_alloc);
 	// Step 1: call get_node_by_path() to get inode from path
 	struct inode* curr_inode = (struct inode*)calloc(1, sizeof(struct inode));
 	if(get_node_by_path(path, ROOT_INO, curr_inode) == -1){
@@ -746,6 +742,7 @@ static int rufs_write(const char *path, const char *buffer, size_t size, off_t o
 		if(curr_inode->direct_ptr[0] == 0){
 			curr_inode->direct_ptr[0] = get_avail_blkno();
 			if(curr_inode->direct_ptr[0] == -1){
+				free(block_buffer);
 				free(curr_inode);
 				return ENOSPC;
 			}
@@ -774,12 +771,12 @@ static int rufs_write(const char *path, const char *buffer, size_t size, off_t o
 		if(curr_inode->direct_ptr[i] == 0){
 			curr_inode->direct_ptr[i] = get_avail_blkno();
 			if(curr_inode->direct_ptr[i] == -1){
+				free(block_buffer);
 				free(curr_inode);
 				return ENOSPC;
 			}
 			curr_inode->size += BLOCK_SIZE;
 			curr_inode->vstat.st_size += BLOCK_SIZE;
-		
 		}
 		if(i == start_blk){
 			bio_read(curr_inode->direct_ptr[i], block_buffer);
@@ -887,9 +884,7 @@ int main(int argc, char *argv[]) {
 	int fuse_stat;
 
 	getcwd(diskfile_path, PATH_MAX);
-	// printf("%s\n", diskfile_path);
 	strcat(diskfile_path, "/DISKFILE");
-	// printf("%s\n", diskfile_path);
 	fuse_stat = fuse_main(argc, argv, &rufs_ope, NULL);
 
 	return fuse_stat;

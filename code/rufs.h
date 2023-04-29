@@ -15,10 +15,8 @@
 
 #define MAGIC_NUM 0x5C3A
 #define MAX_INUM 1024 //Max inode data structures (not blocks)
-#define MAX_DNUM 16384 //Max data blocks
+#define MAX_DNUM 16384 //16384 //8192 //Max data blocks
 #define NUM_DPTRS 16
-#define NUM_IDPTRS 8
-#define DISK_SIZE 32*1024*1024 //Make not of this macro being in two different spots in the report
 
 
 struct superblock {
@@ -29,11 +27,10 @@ struct superblock {
 	uint32_t	d_bitmap_blk;		/* start block of data block bitmap */
 	uint32_t	i_start_blk;		/* start block of inode region */
 	uint32_t	d_start_blk;		/* start block of data block region */
-	uint32_t    inodes_per_blk;
-	uint32_t    dirents_per_blk;
-	uint32_t    max_dblks;
-	uint32_t    max_file_size;
-	uint32_t    total_blocks_alloc; 
+	uint32_t    inodes_per_blk;     /* number of inodes that can fit in one block */
+	uint32_t    dirents_per_blk;    /* number of dirents that can fit in one block */
+	uint32_t    max_file_size;      /* maximum file size based on NUM_DPTRS */
+	uint32_t    total_blocks_alloc; /* tracker for how many blocks (metadata, userdata) have been allocated so far*/
 };
 
 struct inode {
@@ -42,8 +39,8 @@ struct inode {
 	uint32_t	size;				/* size of the file */
 	uint32_t	type;				/* type of the file */
 	uint32_t	link;				/* link count */
-	int			direct_ptr[NUM_DPTRS];		/* direct pointer to data block */
-	int			indirect_ptr[NUM_IDPTRS];	/* indirect pointer to data block */
+	int			direct_ptr[NUM_DPTRS]; /* direct pointer to data block */
+	int			indirect_ptr[8];	/* indirect pointer to data block */
 	struct stat	vstat;				/* inode stat */
 };
 

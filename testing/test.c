@@ -12,9 +12,11 @@
 #include <linux/limits.h>
 
 #define DISK_SIZE  32*1024*1024
-#define BLOCK_SIZE 4096
+#define BLOCK_SIZE 1024
 #define MAX_INUM 1024
 #define MAX_DNUM 16384
+#define NUM_DPTRS 16
+#define IREG_IDX 3
 
 /*******************************************************************************************************/
 /*Data Structures*/
@@ -38,7 +40,7 @@ struct inode {
 	uint32_t	size;				/* size of the file */
 	uint32_t	type;				/* type of the file */
 	uint32_t	link;				/* link count */
-	int			direct_ptr[16];		/* direct pointer to data block */
+	int			direct_ptr[NUM_DPTRS];		/* direct pointer to data block */
 	int			indirect_ptr[8];	/* indirect pointer to data block */
 	struct stat	vstat;				/* inode stat */
 };
@@ -48,7 +50,6 @@ struct dirent {
 	uint16_t valid;					/* validity of the directory entry */
 	char name[208];					/* name of the directory entry */
 	uint16_t len;					/* length of name */
-    int ptrs[16];
 };
 
 typedef unsigned char* bitmap_t;
@@ -58,11 +59,10 @@ int fill_dirent(struct dirent dir, const char* fname, size_t flen, uint16_t inum
     dir.valid = 1;
     strcpy(dir.name, fname);
     dir.len = flen;
-    dir.ptrs[0] = 29;
     return 0;
 }
 void print_dirent(struct dirent dir){
-    printf("valid: %i | name: %s | len: %d | ino: %i | ptr: %i\n", dir.valid, dir.name, dir.len, dir.ino, dir.ptrs[0]);
+    printf("valid: %i | name: %s | len: %d | ino: %i\n", dir.valid, dir.name, dir.len, dir.ino);
 }
 /*******************************************************************************************************/
 /*Global Variables*/
@@ -235,9 +235,14 @@ int main(int argc, char** argv){
             printf("MAX DATA BLOCKS(on disk): %ld\n", (DISK_SIZE/BLOCK_SIZE) - (((sizeof(struct inode)*MAX_INUM)/BLOCK_SIZE)+3));
             printf("MAX NUM INODES: %d\n", MAX_INUM);
             printf("MAX NUM DATA BLOCKS: %d\n", MAX_DNUM);
+            printf("MAX FILE SIZE: %d\n", NUM_DPTRS * BLOCK_SIZE);
+            printf("DATA REGION START BLOCK: %ld\n", ((sizeof(struct inode)*MAX_INUM)/BLOCK_SIZE) + (IREG_IDX + 1));
             printf("superblock: %ld bytes\n", sizeof(struct superblock));
             printf("inode: %ld bytes\n", sizeof(struct inode));
             printf("dirent: %ld bytes\n", sizeof(struct dirent));
+            printf("============\n");
+
+
             printf("%d\n", S_IFDIR | 0755 );
             struct dirent* nd = (struct dirent*)calloc(1, sizeof(struct dirent));
             nd->name[0] = 'n';
